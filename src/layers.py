@@ -19,7 +19,10 @@ def conv2d_layer(i, tensor, filter_shape, activation = tf.nn.relu):
                             strides=[1, 1, 1, 1],
                             padding='SAME')
         #функция активации нейрнов сверточного слоя поэлементно
-        act = activation(tf.nn.bias_add(conv, biases))
+        if activation:
+            act = activation(tf.nn.bias_add(conv, biases))
+        else:
+            act = tf.nn.bias_add(conv, biases)
     return act    
 
 #слой объединения. подается результат свертки и функция выбирает максимальное значение, проходя по блокам
@@ -44,7 +47,7 @@ def fully_connected_layer(i, tensor, n_neurons, activation = tf.nn.relu):
         if activation:
             act = activation(tf.nn.bias_add(matmul, biases))
         else:
-            act = matmul
+            act = tf.nn.bias_add(matmul, biases)
     return act
 
 def unpool(value):
