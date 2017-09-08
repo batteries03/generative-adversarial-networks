@@ -1,11 +1,11 @@
 import numpy as np
 import pickle
 import random
-import tensorflow as tf
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+import time, os
+import tensorflow as tf
 import layers
-
 
 
 with open('../datasets/mnist/mnist.pkl', 'rb') as f:
@@ -41,91 +41,70 @@ def plot(samples):
 def sample_seed_inputs(m, n):
     return np.random.uniform(-1., 1., size=[m, n])
 
+GENERATOR_SEED_SIZE = 100
 
 def generator(inputs):
     with tf.name_scope('generator'):
-        net = layers.fully_connected_layer(1, inputs, 512, None)
-        
-        net = layers.fully_connected_layer(2, net, 7 * 7 * 32)
-        net = tf.reshape(net, [-1, 7, 7, 32])
-        net = layers.unpool(net)
-        net = layers.conv2d_layer(2, net, [5, 5, 16])
-        net = layers.unpool(net)
-        net = layers.conv2d_layer(3, net, [5, 5, 1])
-        
+        net = layers.fully_connected_layer(1, inputs, 128)
+        net = layers.fully_connected_layer(2, net, 28 * 28 * 1, tf.nn.sigmoid, zero_biases=True, zero_weights=True)
+        net = tf.reshape(net, [-1, 28, 28, 1])
+
         return net
 
 def discriminator(inputs):
-    with tf.name_scope('discriminator'):       
-        net = layers.conv2d_layer(1, inputs, [5, 5, 16])
-        net = layers.max_pool2d(net, [2, 2])
-        net = layers.conv2d_layer(2, net, [5, 5, 32])
-        net = layers.max_pool2d(net, [2, 2])
-        net = layers.conv2d_layer(3, net, [3, 3, 64])
-        net = layers.max_pool2d(net, [2, 2])
-        net = layers.fully_connected_layer(1, net, 64)
-        net = layers.fully_connected_layer(2, net, 1, tf.nn.sigmoid)
+    with tf.name_scope('discriminator'):
+        net = layers.fully_connected_layer(1, inputs, 128)
+        net = layers.fully_connected_layer(2, net, 1, tf.nn.sigmoid, zero_biases=True, zero_weights=True)
         return net
 
 #обнуление графа
 tf.reset_default_graph()
 
-
-GENERATOR_SEED_SIZE = 20
-
 #создание сети в графе
 with tf.name_scope('GAN'):
-    generator_inputs = tf.placeholder(tf.int64, [None, train_labels.shape[1]], name='generator_inputs')
-    #преобразование целевых значений в "один из N"
-    generator_inputs_one_hot = tf.reshape(tf.cast(tf.one_hot(tf.squeeze(generator_inputs), 10), tf.float32), [-1, 10])
     generator_seed_inputs = tf.placeholder(tf.float32, [None, GENERATOR_SEED_SIZE], name='generator_seed_inputs')
-    
-    _generator_inputs = tf.concat([generator_inputs_one_hot, generator_seed_inputs], axis=1)
-    
+
+    _generator_inputs = generator_seed_inputs
     with tf.variable_scope('generator'):
         generator_outputs = generator(_generator_inputs)
-        
+
     discriminator_inputs = tf.placeholder(tf.float32, [None] + list(train_images.shape[1:]), name='inputs')
     with tf.variable_scope('discriminator') as vs:
         with tf.name_scope('real'):
-            discriminator_outputs_real = discriminator(discriminator_inputs)
+            discriminator_outputs_real_prob = discriminator(discriminator_inputs)
         vs.reuse_variables()
         with tf.name_scope('fake'):
-            discriminator_outputs_fake = discriminator(generator_outputs)
+            discriminator_outputs_fake_prob = discriminator(generator_outputs)
 
-#элементы графа для обучения сети    
+#элементы графа для обучения сети
 with tf.name_scope('training'):
-    #бинарная кросс-энтропия
-    def bce(targets, outputs, eps=1e-9):
-        return tf.reduce_mean(-targets * tf.log(tf.clip_by_value(outputs, eps, 1)) - (1 - targets) * tf.log(tf.clip_by_value(1 - outputs, eps, 1)))
-        
-    with tf.name_scope('generator'):
-        #целевые значения, к которым должна придти сеть в результате обучения
-        generator_targets = tf.ones_like(discriminator_outputs_fake, name='generator_targets')
-        #функция потерь (ошибки)
-        generator_loss = bce(generator_targets, discriminator_outputs_fake)
-        
-        #минимизация функции потерь по весовым коэффициентам
-        generator_lr_var = tf.Variable(1e-4, trainable=False)
-        
-        params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='generator')
-        optimizer = tf.train.AdamOptimizer(generator_lr_var)
-        generator_updates = optimizer.minimize(generator_loss, var_list=params)
-        
-    with tf.name_scope('discriminator'):       
-        discriminator_targets_real = tf.ones_like(discriminator_outputs_real, name='discriminator_targets_real')
-        discriminator_targets_fake = tf.zeros_like(discriminator_outputs_fake, name='discriminator_targets_fake')
-        
-        _loss_real = bce(discriminator_targets_real, discriminator_outputs_real)
-        _loss_fake = bce(discriminator_targets_fake, discriminator_outputs_fake)
+    with tf.name_scope('discriminator'):
+        discriminator_targets_real = tf.ones_like(discriminator_outputs_real_prob, name='discriminator_targets_real')
+        discriminator_targets_fake = tf.zeros_like(discriminator_outputs_fake_prob, name='discriminator_targets_fake')
+
+        _loss_real = tf.reduce_mean(tf.log(tf.clip_by_value(discriminator_outputs_real_prob, 1e-9, 1)))
+        _loss_fake = tf.reduce_mean(tf.log(tf.clip_by_value(1 - discriminator_outputs_fake_prob, 1e-9, 1)))
         discriminator_loss = _loss_real + _loss_fake
-        
+
         #минимизация функции потерь по весовым коэффициентам
-        discriminator_lr_var = tf.Variable(1e-4, trainable=False)
-        
+        discriminator_lr_var = tf.Variable(1e-3, trainable=False)
+
         params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='discriminator')
         optimizer = tf.train.AdamOptimizer(discriminator_lr_var)
-        discriminator_updates = optimizer.minimize(discriminator_loss, var_list=params)
+        discriminator_updates = optimizer.minimize(-discriminator_loss, var_list=params) # maximization
+
+    with tf.name_scope('generator'):
+        #целевые значения, к которым должна придти сеть в результате обучения
+        generator_targets = tf.ones_like(discriminator_outputs_fake_prob, name='generator_targets')
+        #функция потерь (ошибки)
+        generator_loss = tf.reduce_mean(tf.log(tf.clip_by_value(discriminator_outputs_fake_prob, 1e-9, 1)))
+
+        #минимизация функции потерь по весовым коэффициентам
+        generator_lr_var = tf.Variable(1e-3, trainable=False)
+
+        params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='generator')
+        optimizer = tf.train.AdamOptimizer(generator_lr_var)
+        generator_updates = optimizer.minimize(-generator_loss, var_list=params) # maximization
 
 # сохранение параметров для графа
 save_vars = tf.global_variables()
@@ -134,61 +113,60 @@ saver = tf.train.Saver(save_vars)
 # шаг тренировки. заполняем узлы графа, картинками для обучения, которые используются для входа, и вычисляем обновления весов
 def train_discriminator_step(session, images, labels, seed):
     input_feed = {}
-    
+
     input_feed[discriminator_inputs.name] = images
-    input_feed[generator_inputs.name] = labels
+    #input_feed[generator_inputs.name] = labels
     input_feed[generator_seed_inputs.name] = seed
-    
+
     output_feed = [discriminator_updates]
-    
+
     _ = session.run(output_feed, input_feed)
-    
+
 def train_generator_step(session, labels, seed):
     input_feed = {}
-    
-    input_feed[generator_inputs.name] = labels
+
+    #input_feed[generator_inputs.name] = labels
     input_feed[generator_seed_inputs.name] = seed
-    
+
     output_feed = [generator_updates]
-    
+
     _ = session.run(output_feed, input_feed)
-    
+
 def generator_step(session, labels, seed):
     input_feed = {}
-    
-    input_feed[generator_inputs.name] = labels
+
+    #input_feed[generator_inputs.name] = labels
     input_feed[generator_seed_inputs.name] = seed
-    
+
     return session.run(generator_outputs, input_feed)
 
-# заполнение узлов графа картинками и целевыми значениями.расчет функции потерь    
+# заполнение узлов графа картинками и целевыми значениями.расчет функции потерь
 def valid_step(session, images, labels, seed, summary):
     input_feed = {}
-    
-    input_feed[generator_inputs.name] = labels 
+
+    #input_feed[generator_inputs.name] = labels
     input_feed[discriminator_inputs.name] = images
     input_feed[generator_seed_inputs.name] = seed
-    
+
     output_feed = [generator_loss, discriminator_loss, summary]
-    
+
     return session.run(output_feed, input_feed)
 
 
 # цикл обучения
-import time, os
 
 EPOCHS = 100
 STEPS_PER_CHECKPOINT = 5
-BATCH_SIZE = 1000
+BATCH_SIZE = 250
 
 TRAINING_DIR = './model/'
 
 if not os.path.exists(TRAINING_DIR):
     os.makedirs(TRAINING_DIR)
-    
+
 if not os.path.exists('./output/'):
     os.makedirs('./output/')
-    
+
 checkpoint_path = os.path.join(TRAINING_DIR, 'GAN.ckpt')
 
 tf.summary.scalar('geneartor loss', generator_loss)
@@ -199,7 +177,7 @@ tf.summary.scalar('discriminator learning rate', discriminator_lr_var)
 
 summary_op = tf.summary.merge_all()
 
-nbatches = 10 #len(train_images) // BATCH_SIZE
+nbatches = len(train_images) // BATCH_SIZE
 
 with tf.Session() as session:
     train_summary_writer = tf.summary.FileWriter(os.path.join(TRAINING_DIR, 'summary', 'train'), session.graph)
@@ -212,7 +190,7 @@ with tf.Session() as session:
     ckpt = tf.train.get_checkpoint_state(TRAINING_DIR)
     if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
         saver.restore(session, ckpt.model_checkpoint_path)
-        
+
     tf.train.write_graph(session.graph_def, TRAINING_DIR, 'GAN.pb', as_text=False)
 
     print('Start training.', flush=True)
@@ -222,20 +200,20 @@ with tf.Session() as session:
             fig = plot(samples)
             plt.savefig('output/{}.png'.format(str(epoch).zfill(3)), bbox_inches='tight')
             plt.close(fig)
-            
+
             start = time.time()
 
             print('Epoch #%i: ' % (epoch+1), end='', flush=True)
 
             for b in range(nbatches):
                 batch = np.arange(b*BATCH_SIZE, (b+1)*BATCH_SIZE)
-                
+
                 train_discriminator_step(session, train_images[batch], train_labels[batch], sample_seed_inputs(BATCH_SIZE, GENERATOR_SEED_SIZE))
                 train_generator_step(session, train_labels[batch], sample_seed_inputs(BATCH_SIZE, GENERATOR_SEED_SIZE))
 
             batch = np.random.choice(len(train_images), BATCH_SIZE, replace=False)
             train_gen_loss, train_dis_loss, summary = valid_step(session, train_images[batch], train_labels[batch], sample_seed_inputs(BATCH_SIZE, GENERATOR_SEED_SIZE), summary_op)
-            
+
             train_summary_writer.add_summary(summary, epoch)
 
             batch = np.random.choice(len(valid_images), BATCH_SIZE, replace=False)
@@ -249,7 +227,7 @@ with tf.Session() as session:
                 saver.save(session, checkpoint_path)
 
         print('Training process is finished.', flush=True)
-        
+
         samples = generator_step(session, np.random.randint(0, 9, [16, 1]), sample_seed_inputs(16, GENERATOR_SEED_SIZE))
         fig = plot(samples)
         plt.savefig('output/{}.png'.format(str(EPOCHS).zfill(3)), bbox_inches='tight')
@@ -257,9 +235,3 @@ with tf.Session() as session:
     finally:
         saver.save(session, checkpoint_path)
         tf.train.write_graph(session.graph_def, TRAINING_DIR, 'GAN.pb', as_text=False)
-
-
-
-
-
-
