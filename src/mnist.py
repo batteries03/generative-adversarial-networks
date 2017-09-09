@@ -45,9 +45,12 @@ GENERATOR_SEED_SIZE = 100
 
 def generator(inputs):
     with tf.name_scope('generator'):
-        net = layers.fully_connected_layer(1, inputs, 128)
-        net = layers.fully_connected_layer(2, net, 28 * 28 * 1, tf.nn.sigmoid, zero_biases=True, zero_weights=True)
-        net = tf.reshape(net, [-1, 28, 28, 1])
+        net = layers.fully_connected_layer(1, inputs, 7 * 7 * 8)
+        net = tf.reshape(net, [-1, 7, 7, 8])
+        net = layers.unpool(net)
+        net = layers.conv2d_layer(1, net, [5, 5, 8])
+        net = layers.unpool(net)
+        net = layers.conv2d_layer(2, net, [5, 5, 1], tf.nn.sigmoid, zero_biases=True)
 
         return net
 
@@ -208,7 +211,8 @@ with tf.Session() as session:
             for b in range(nbatches):
                 batch = np.arange(b*BATCH_SIZE, (b+1)*BATCH_SIZE)
 
-                train_discriminator_step(session, train_images[batch], train_labels[batch], sample_seed_inputs(BATCH_SIZE, GENERATOR_SEED_SIZE))
+                for _ in range(3):
+                    train_discriminator_step(session, train_images[batch], train_labels[batch], sample_seed_inputs(BATCH_SIZE, GENERATOR_SEED_SIZE))
                 train_generator_step(session, train_labels[batch], sample_seed_inputs(BATCH_SIZE, GENERATOR_SEED_SIZE))
 
             batch = np.random.choice(len(train_images), BATCH_SIZE, replace=False)
