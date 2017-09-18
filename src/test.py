@@ -3,23 +3,48 @@ import os
 import random
 import tensorflow as tf
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 
-TRAINING_DIR = './output/model/'
+TRAINING_DIR = './model/'
+
+def plot(samples, grid):
+    fig = plt.figure(figsize=grid)
+    gs = gridspec.GridSpec(*grid)
+    gs.update(wspace=0.05, hspace=0.05)
+
+    for i, sample in enumerate(samples):
+        ax = plt.subplot(gs[i])
+        plt.axis('off')
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.set_aspect('equal')
+        plt.imshow(sample.squeeze(), cmap='gray')
+
+    return fig
+
+def sample_seed_inputs(m, n):
+    return np.random.uniform(-1., 1., size=[m, n])
+
+GENERATOR_SEED_SIZE = 100
+
+if not os.path.exists('./samples/'):
+    os.makedirs('./samples/')
 
 with tf.Session() as session:
-    saver = tf.train.import_meta_graph(os.path.join(TRAINING_DIR, 'convnet.ckpt.meta'))
-    saver.restore(session, os.path.join(TRAINING_DIR, 'convnet.ckpt'))
-    
-    inputs = tf.get_default_graph().get_tensor_by_name('convnet/inputs:0')
-    outputs = tf.get_default_graph().get_tensor_by_name('convnet/conv-3/Relu:0')
+    saver = tf.train.import_meta_graph(os.path.join(TRAINING_DIR, 'GAN.ckpt.meta'))
+    saver.restore(session, os.path.join(TRAINING_DIR, 'GAN.ckpt'))
+
+    noise_inputs = tf.get_default_graph().get_tensor_by_name('GAN/generator_seed_inputs:0')
+    labels_inputs = tf.get_default_graph().get_tensor_by_name('GAN/labels_inputs:0')
+
+    outputs = tf.get_default_graph().get_tensor_by_name('GAN/generator/generator/Reshape:0')
+
+    noise = sample_seed_inputs(16, GENERATOR_SEED_SIZE)
+
     for i in range(10):
-        plt.figure()
+        samples = session.run(outputs, {noise_inputs.name: noise, labels_inputs.name: [[i]] * noise.shape[0]})
+
+        fig = plot(samples, (4, 4))
         plt.title(str(i))
-        
-        image = session.run(outputs, {inputs.name: [[i]]})
-        
-        image = image.squeeze()
-        
-        plt.imshow(image, cmap='gray')
-        
-    plt.show()
+        plt.savefig('samples/{}.png'.format(str(i)), bbox_inches='tight')
+        plt.close(fig)

@@ -45,18 +45,22 @@ GENERATOR_SEED_SIZE = 100
 
 def generator(inputs):
     with tf.name_scope('generator'):
-        net = layers.fully_connected_layer(1, inputs, 7 * 7 * 8)
-        net = tf.reshape(net, [-1, 7, 7, 8])
-        net = layers.unpool(net)
-        net = layers.conv2d_layer(1, net, [5, 5, 8])
-        net = layers.unpool(net)
-        net = layers.conv2d_layer(2, net, [5, 5, 1], tf.nn.sigmoid, zero_biases=True)
+        net = layers.fully_connected_layer(1, inputs, 128)
+        net = layers.fully_connected_layer(2, net, 28 * 28)
+        net = tf.reshape(net, [-1, 28, 28, 1])
+        #net = layers.unpool(net)
+        #net = layers.conv2d_layer(1, net, [5, 5, 8])
+        #net = layers.unpool(net)
+        #net = layers.conv2d_layer(2, net, [5, 5, 1], tf.nn.sigmoid, zero_biases=True)
+
 
         return net
 
-def discriminator(inputs):
+def discriminator(inputs, labels):
     with tf.name_scope('discriminator'):
-        net = layers.fully_connected_layer(1, inputs, 128)
+        inputs = tf.reshape(inputs, [-1, 28*28])
+        _inputs = tf.concat([inputs, labels], axis=1)
+        net = layers.fully_connected_layer(1, _inputs, 128)
         net = layers.fully_connected_layer(2, net, 1, tf.nn.sigmoid, zero_biases=True, zero_weights=True)
         return net
 
@@ -65,19 +69,24 @@ tf.reset_default_graph()
 
 #создание сети в графе
 with tf.name_scope('GAN'):
+    labels_inputs = tf.placeholder(tf.int32, [None, 1], name='labels_inputs')
+    _labels_inputs = tf.cast(tf.one_hot(tf.squeeze(labels_inputs), 10), tf.float32)
+    _labels_inputs = tf.reshape(_labels_inputs, [-1, 10])
+
     generator_seed_inputs = tf.placeholder(tf.float32, [None, GENERATOR_SEED_SIZE], name='generator_seed_inputs')
 
     _generator_inputs = generator_seed_inputs
     with tf.variable_scope('generator'):
-        generator_outputs = generator(_generator_inputs)
+        _inputs = tf.concat([_generator_inputs, _labels_inputs], axis=1)
+        generator_outputs = generator(_inputs)
 
     discriminator_inputs = tf.placeholder(tf.float32, [None] + list(train_images.shape[1:]), name='inputs')
     with tf.variable_scope('discriminator') as vs:
         with tf.name_scope('real'):
-            discriminator_outputs_real_prob = discriminator(discriminator_inputs)
+            discriminator_outputs_real_prob = discriminator(discriminator_inputs, _labels_inputs)
         vs.reuse_variables()
         with tf.name_scope('fake'):
-            discriminator_outputs_fake_prob = discriminator(generator_outputs)
+            discriminator_outputs_fake_prob = discriminator(generator_outputs, _labels_inputs)
 
 #элементы графа для обучения сети
 with tf.name_scope('training'):
@@ -118,7 +127,7 @@ def train_discriminator_step(session, images, labels, seed):
     input_feed = {}
 
     input_feed[discriminator_inputs.name] = images
-    #input_feed[generator_inputs.name] = labels
+    input_feed[labels_inputs.name] = labels
     input_feed[generator_seed_inputs.name] = seed
 
     output_feed = [discriminator_updates]
@@ -128,7 +137,7 @@ def train_discriminator_step(session, images, labels, seed):
 def train_generator_step(session, labels, seed):
     input_feed = {}
 
-    #input_feed[generator_inputs.name] = labels
+    input_feed[labels_inputs.name] = labels
     input_feed[generator_seed_inputs.name] = seed
 
     output_feed = [generator_updates]
@@ -138,7 +147,7 @@ def train_generator_step(session, labels, seed):
 def generator_step(session, labels, seed):
     input_feed = {}
 
-    #input_feed[generator_inputs.name] = labels
+    input_feed[labels_inputs.name] = labels
     input_feed[generator_seed_inputs.name] = seed
 
     return session.run(generator_outputs, input_feed)
@@ -147,7 +156,7 @@ def generator_step(session, labels, seed):
 def valid_step(session, images, labels, seed, summary):
     input_feed = {}
 
-    #input_feed[generator_inputs.name] = labels
+    input_feed[labels_inputs.name] = labels
     input_feed[discriminator_inputs.name] = images
     input_feed[generator_seed_inputs.name] = seed
 
