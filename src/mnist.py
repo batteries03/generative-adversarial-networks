@@ -15,7 +15,7 @@ BATCH_SIZE = 100
 TRAINING_DIR = './model/'
 
 
-with open('../datasets/mnist/mnist.pkl', 'rb') as f:
+with open('../dataset/mnist/mnist.pkl', 'rb') as f:
     data = pickle.load(f, encoding='latin')
 
 
