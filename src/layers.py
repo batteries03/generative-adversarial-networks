@@ -3,33 +3,63 @@ import tensorflow as tf
 
 
 #сверточный слой
-def conv2d_layer(i, tensor, filter_shape, activation = tf.nn.relu, zero_biases=False, zero_weights=False):
+def conv2d_layer(i, tensor, filter_shape, activation = tf.nn.relu, stride=1, zero_biases=False, zero_weights=False):
     with tf.variable_scope('conv-%d' % i):
         #размер весов [число строк, число столбцов, число входных каналов, число выходных каналов]
         shape = [filter_shape[0], filter_shape[1], tensor.shape[3], filter_shape[2]]
-        
+
         #веса сверток
         if (zero_weights):
             weights = tf.get_variable('weights', shape, tf.float32, initializer=tf.zeros_initializer())
         else:
             weights = tf.get_variable('weights', shape, tf.float32, initializer=tf.contrib.layers.xavier_initializer_conv2d())
-        #веса смещения            
+        #веса смещения
         if (zero_biases):
             biases = tf.get_variable('biases', [shape[-1]], tf.float32, initializer=tf.zeros_initializer())
         else:
             biases = tf.get_variable('biases', [shape[-1]], tf.float32, initializer=tf.ones_initializer())
-        
+
         #операция свертки. приходит входной тензор с весами
-        conv = tf.nn.conv2d(tensor, 
+        conv = tf.nn.conv2d(tensor,
                             weights,
-                            strides=[1, 1, 1, 1],
+                            strides=[1, stride, stride, 1],
                             padding='SAME')
         #функция активации нейрнов сверточного слоя поэлементно
         if activation:
             act = activation(tf.nn.bias_add(conv, biases))
         else:
             act = tf.nn.bias_add(conv, biases)
-    return act    
+    return act
+
+def conv2d_transpose_layer(i, tensor, filter_shape, batch_size, activation = tf.nn.relu, stride=1, zero_biases=False, zero_weights=False):
+    with tf.variable_scope('conv-%d' % i):
+        #размер весов [число строк, число столбцов, число входных каналов, число выходных каналов]
+        shape = [filter_shape[0], filter_shape[1], filter_shape[2], tensor.shape[3]]
+        out_shape = [int(batch_size), int(tensor.shape[1]*stride), int(tensor.shape[2]*stride), filter_shape[2]]
+
+        #веса сверток
+        if (zero_weights):
+            weights = tf.get_variable('weights', shape, tf.float32, initializer=tf.zeros_initializer())
+        else:
+            weights = tf.get_variable('weights', shape, tf.float32, initializer=tf.contrib.layers.xavier_initializer_conv2d())
+        #веса смещения
+        if (zero_biases):
+            biases = tf.get_variable('biases', [filter_shape[2]], tf.float32, initializer=tf.zeros_initializer())
+        else:
+            biases = tf.get_variable('biases', [filter_shape[2]], tf.float32, initializer=tf.ones_initializer())
+
+        #операция свертки. приходит входной тензор с весами
+        conv = tf.nn.conv2d_transpose(tensor,
+                                      weights,
+                                      out_shape,
+                                      strides=[1, stride, stride, 1],
+                                      padding='SAME')
+        #функция активации нейрнов сверточного слоя поэлементно
+        if activation:
+            act = activation(tf.nn.bias_add(conv, biases))
+        else:
+            act = tf.nn.bias_add(conv, biases)
+    return act
 
 #слой объединения. подается результат свертки и функция выбирает максимальное значение, проходя по блокам
 def max_pool2d(tensor, pool_size):
@@ -43,19 +73,19 @@ def fully_connected_layer(i, tensor, n_neurons, activation = tf.nn.relu, zero_we
     with tf.variable_scope('fc-%d' % i):
         if(len(tensor.shape) > 2):
             tensor = tf.reshape(tensor, [-1, int(np.prod(tensor.shape[1:]))])
-            
+
         shape = [int(tensor.shape[1]), n_neurons]
-        
+
         if (zero_weights):
             weights = tf.get_variable('weights', shape, tf.float32, initializer=tf.zeros_initializer())
         else:
             weights = tf.get_variable('weights', shape, tf.float32, initializer=tf.contrib.layers.xavier_initializer())
-                    
+
         if (zero_biases):
             biases = tf.get_variable('biases', [shape[-1]], tf.float32, initializer=tf.zeros_initializer())
         else:
             biases = tf.get_variable('biases', [shape[-1]], tf.float32, initializer=tf.ones_initializer())
-        
+
         matmul = tf.matmul(tensor, weights)
         if activation:
             act = activation(tf.nn.bias_add(matmul, biases))
@@ -73,3 +103,7 @@ def unpool(value):
         out_size = [-1] + [s * 2 for s in sh[1:-1]] + [sh[-1]]
         out = tf.reshape(out, out_size, name=scope)
     return out
+
+
+def lrelu(x, alpha):
+    return tf.nn.relu(x) - alpha * tf.nn.relu(-x)

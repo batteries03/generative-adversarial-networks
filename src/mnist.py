@@ -8,6 +8,13 @@ import tensorflow as tf
 import layers
 
 
+EPOCHS = 100
+STEPS_PER_CHECKPOINT = 5
+BATCH_SIZE = 100
+
+TRAINING_DIR = './model/'
+
+
 with open('../datasets/mnist/mnist.pkl', 'rb') as f:
     data = pickle.load(f, encoding='latin')
 
@@ -20,6 +27,11 @@ valid_images = np.reshape(valid_images, [-1, 28, 28, 1])
 valid_labels = np.reshape(valid_labels, [-1, 1])
 test_images = np.reshape(test_images, [-1, 28, 28, 1])
 test_labels = np.reshape(test_labels, [-1, 1])
+
+# дополнение до размера 32x32
+train_images = np.pad(train_images, ((0, 0), (2, 2), (2, 2), (0, 0)), mode='edge')
+valid_images = np.pad(valid_images, ((0, 0), (2, 2), (2, 2), (0, 0)), mode='edge')
+test_images = np.pad(test_images, ((0, 0), (2, 2), (2, 2), (0, 0)), mode='edge')
 
 #функция рисования результатов работы генератора
 def plot(samples):
@@ -43,25 +55,26 @@ def sample_seed_inputs(m, n):
 
 GENERATOR_SEED_SIZE = 100
 
-def generator(inputs):
+def generator(inputs, batch_size):
     with tf.name_scope('generator'):
-        net = layers.fully_connected_layer(1, inputs, 128)
-        net = layers.fully_connected_layer(2, net, 28 * 28)
-        net = tf.reshape(net, [-1, 28, 28, 1])
-        #net = layers.unpool(net)
-        #net = layers.conv2d_layer(1, net, [5, 5, 8])
-        #net = layers.unpool(net)
-        #net = layers.conv2d_layer(2, net, [5, 5, 1], tf.nn.sigmoid, zero_biases=True)
-
+        net = layers.fully_connected_layer(1, inputs, 4 * 4 * 512, None)
+        net = tf.reshape(net, [batch_size, 4, 4, 512])
+        net = layers.conv2d_transpose_layer(1, net, [5, 5, 256], batch_size, stride=2)
+        net = layers.conv2d_transpose_layer(2, net, [5, 5, 128], batch_size, stride=2)
+        net = layers.conv2d_transpose_layer(3, net, [5, 5, 1], batch_size, tf.nn.sigmoid, stride=2, zero_biases=True)
 
         return net
 
 def discriminator(inputs, labels):
     with tf.name_scope('discriminator'):
-        inputs = tf.reshape(inputs, [-1, 28*28])
-        _inputs = tf.concat([inputs, labels], axis=1)
-        net = layers.fully_connected_layer(1, _inputs, 128)
-        net = layers.fully_connected_layer(2, net, 1, tf.nn.sigmoid, zero_biases=True, zero_weights=True)
+        net = layers.conv2d_layer(1, inputs, [5, 5, 16], lambda x: layers.lrelu(x, 0.2), stride=2)
+        net = layers.conv2d_layer(2, net, [5, 5, 32], lambda x: layers.lrelu(x, 0.2), stride=2)
+        net = layers.conv2d_layer(3, net, [5, 5, 64], lambda x: layers.lrelu(x, 0.2), stride=2)
+        net = layers.conv2d_layer(4, net, [5, 5, 128], lambda x: layers.lrelu(x, 0.2), stride=2)
+        net = layers.max_pool2d(net, [2, 2])
+        net = layers.conv2d_layer(5, net, [1, 1, 1], tf.nn.sigmoid)
+        net = tf.reshape(net, [-1, 1])
+
         return net
 
 #обнуление графа
@@ -69,18 +82,18 @@ tf.reset_default_graph()
 
 #создание сети в графе
 with tf.name_scope('GAN'):
-    labels_inputs = tf.placeholder(tf.int32, [None, 1], name='labels_inputs')
+    labels_inputs = tf.placeholder(tf.int32, [BATCH_SIZE, 1], name='labels_inputs')
     _labels_inputs = tf.cast(tf.one_hot(tf.squeeze(labels_inputs), 10), tf.float32)
     _labels_inputs = tf.reshape(_labels_inputs, [-1, 10])
 
-    generator_seed_inputs = tf.placeholder(tf.float32, [None, GENERATOR_SEED_SIZE], name='generator_seed_inputs')
+    generator_seed_inputs = tf.placeholder(tf.float32, [BATCH_SIZE, GENERATOR_SEED_SIZE], name='generator_seed_inputs')
 
     _generator_inputs = generator_seed_inputs
     with tf.variable_scope('generator'):
         _inputs = tf.concat([_generator_inputs, _labels_inputs], axis=1)
-        generator_outputs = generator(_inputs)
+        generator_outputs = generator(_inputs, BATCH_SIZE)
 
-    discriminator_inputs = tf.placeholder(tf.float32, [None] + list(train_images.shape[1:]), name='inputs')
+    discriminator_inputs = tf.placeholder(tf.float32, [BATCH_SIZE] + list(train_images.shape[1:]), name='inputs')
     with tf.variable_scope('discriminator') as vs:
         with tf.name_scope('real'):
             discriminator_outputs_real_prob = discriminator(discriminator_inputs, _labels_inputs)
@@ -167,12 +180,6 @@ def valid_step(session, images, labels, seed, summary):
 
 # цикл обучения
 
-EPOCHS = 100
-STEPS_PER_CHECKPOINT = 5
-BATCH_SIZE = 250
-
-TRAINING_DIR = './model/'
-
 if not os.path.exists(TRAINING_DIR):
     os.makedirs(TRAINING_DIR)
 
@@ -208,7 +215,7 @@ with tf.Session() as session:
     print('Start training.', flush=True)
     try:
         for epoch in range(0, EPOCHS):
-            samples = generator_step(session, np.random.randint(0, 9, [16, 1]), sample_seed_inputs(16, GENERATOR_SEED_SIZE))
+            samples = generator_step(session, np.random.randint(0, 9, [BATCH_SIZE, 1]), sample_seed_inputs(BATCH_SIZE, GENERATOR_SEED_SIZE))[:16]
             fig = plot(samples)
             plt.savefig('output/{}.png'.format(str(epoch).zfill(3)), bbox_inches='tight')
             plt.close(fig)
@@ -241,7 +248,7 @@ with tf.Session() as session:
 
         print('Training process is finished.', flush=True)
 
-        samples = generator_step(session, np.random.randint(0, 9, [16, 1]), sample_seed_inputs(16, GENERATOR_SEED_SIZE))
+        samples = generator_step(session, np.random.randint(0, 9, [BATCH_SIZE, 1]), sample_seed_inputs(BATCH_SIZE, GENERATOR_SEED_SIZE))[:16]
         fig = plot(samples)
         plt.savefig('output/{}.png'.format(str(EPOCHS).zfill(3)), bbox_inches='tight')
         plt.close(fig)
