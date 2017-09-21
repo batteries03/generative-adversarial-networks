@@ -101,7 +101,7 @@ with tf.name_scope('GAN'):
 
     _generator_inputs = generator_seed_inputs
     with tf.variable_scope('generator'):
-        _inputs = tf.concat([_generator_inputs, _labels_inputs], axis=1)
+        _inputs = _generator_inputs# tf.concat([_generator_inputs, _labels_inputs], axis=1)
         generator_outputs = generator(_inputs, BATCH_SIZE, training_mode)
 
     discriminator_inputs = tf.placeholder(tf.float32, [BATCH_SIZE] + list(train_images.shape[1:]), name='inputs')
