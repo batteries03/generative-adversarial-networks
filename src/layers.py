@@ -107,3 +107,24 @@ def unpool(value):
 
 def lrelu(x, alpha):
     return tf.nn.relu(x) - alpha * tf.nn.relu(-x)
+
+
+def batch_norm(input_batch, training, name='batch_norm'):
+    with tf.variable_scope(name or 'batch_norm'):
+        offset = tf.Variable(tf.zeros(input_batch.shape[-1]), trainable=True, name='offset')
+        scale = tf.Variable(tf.ones(input_batch.shape[-1]), trainable=True, name='scale')
+
+        batch_mean, batch_std = tf.nn.moments(input_batch, axes=list(range(len(input_batch.shape)-1)), keep_dims=True)
+        ema = tf.train.ExponentialMovingAverage(decay=0.5)
+
+        def mean_var_with_update():
+            ema_apply_op = ema.apply([batch_mean, batch_std])
+            with tf.control_dependencies([ema_apply_op]):
+                return tf.identity(batch_mean), tf.identity(batch_std)
+
+        def mean_var_without_update():
+            return ema.average(batch_mean), ema.average(batch_std)
+
+        mean, std = tf.cond(training, mean_var_with_update, mean_var_without_update)
+
+        return tf.nn.batch_normalization(input_batch, mean, std, offset, scale, variance_epsilon=1e-5)

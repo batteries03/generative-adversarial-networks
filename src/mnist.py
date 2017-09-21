@@ -57,23 +57,31 @@ def sample_seed_inputs(m, n):
 
 GENERATOR_SEED_SIZE = 100
 
-def generator(inputs, batch_size):
+def generator(inputs, batch_size, training):
     with tf.name_scope('generator'):
         net = layers.fully_connected_layer(1, inputs, 4 * 4 * 512, None)
         net = tf.reshape(net, [batch_size, 4, 4, 512])
+        net = layers.batch_norm(net, training, name='bn1')
         net = layers.conv2d_transpose_layer(1, net, [5, 5, 256], batch_size, stride=2)
+        net = layers.batch_norm(net, training, name='bn2')
         net = layers.conv2d_transpose_layer(2, net, [5, 5, 128], batch_size, stride=2)
+        net = layers.batch_norm(net, training, name='bn3')
         net = layers.conv2d_transpose_layer(3, net, [5, 5, 1], batch_size, tf.nn.sigmoid, stride=2, zero_biases=True)
 
         return net
 
-def discriminator(inputs, labels):
+def discriminator(inputs, labels, training):
     with tf.name_scope('discriminator'):
+        #net = layers.batch_norm(inputs, training, name='bn1')
         net = layers.conv2d_layer(1, inputs, [5, 5, 16], lambda x: layers.lrelu(x, 0.2), stride=2)
+        #net = layers.batch_norm(net, training, name='bn2')
         net = layers.conv2d_layer(2, net, [5, 5, 32], lambda x: layers.lrelu(x, 0.2), stride=2)
+        #net = layers.batch_norm(net, training, name='bn3')
         net = layers.conv2d_layer(3, net, [5, 5, 64], lambda x: layers.lrelu(x, 0.2), stride=2)
+        #net = layers.batch_norm(net, training, name='bn4')
         net = layers.conv2d_layer(4, net, [5, 5, 128], lambda x: layers.lrelu(x, 0.2), stride=2)
         net = layers.max_pool2d(net, [2, 2])
+        #net = layers.batch_norm(net, training, name='bn5')
         net = layers.conv2d_layer(5, net, [1, 1, 1], tf.nn.sigmoid)
         net = tf.reshape(net, [-1, 1])
 
@@ -84,6 +92,7 @@ tf.reset_default_graph()
 
 #создание сети в графе
 with tf.name_scope('GAN'):
+    training_mode = tf.placeholder(tf.bool, name='training_mode')
     labels_inputs = tf.placeholder(tf.int32, [BATCH_SIZE, 1], name='labels_inputs')
     _labels_inputs = tf.cast(tf.one_hot(tf.squeeze(labels_inputs), 10), tf.float32)
     _labels_inputs = tf.reshape(_labels_inputs, [-1, 10])
@@ -93,15 +102,15 @@ with tf.name_scope('GAN'):
     _generator_inputs = generator_seed_inputs
     with tf.variable_scope('generator'):
         _inputs = tf.concat([_generator_inputs, _labels_inputs], axis=1)
-        generator_outputs = generator(_inputs, BATCH_SIZE)
+        generator_outputs = generator(_inputs, BATCH_SIZE, training_mode)
 
     discriminator_inputs = tf.placeholder(tf.float32, [BATCH_SIZE] + list(train_images.shape[1:]), name='inputs')
     with tf.variable_scope('discriminator') as vs:
         with tf.name_scope('real'):
-            discriminator_outputs_real_prob = discriminator(discriminator_inputs, _labels_inputs)
+            discriminator_outputs_real_prob = discriminator(discriminator_inputs, _labels_inputs, training_mode)
         vs.reuse_variables()
         with tf.name_scope('fake'):
-            discriminator_outputs_fake_prob = discriminator(generator_outputs, _labels_inputs)
+            discriminator_outputs_fake_prob = discriminator(generator_outputs, _labels_inputs, training_mode)
 
 #элементы графа для обучения сети
 with tf.name_scope('training'):
@@ -144,6 +153,7 @@ def train_discriminator_step(session, images, labels, seed):
     input_feed[discriminator_inputs.name] = images
     input_feed[labels_inputs.name] = labels
     input_feed[generator_seed_inputs.name] = seed
+    input_feed[training_mode.name] = True
 
     output_feed = [discriminator_updates]
 
@@ -154,6 +164,7 @@ def train_generator_step(session, labels, seed):
 
     input_feed[labels_inputs.name] = labels
     input_feed[generator_seed_inputs.name] = seed
+    input_feed[training_mode.name] = True
 
     output_feed = [generator_updates]
 
@@ -164,6 +175,7 @@ def generator_step(session, labels, seed):
 
     input_feed[labels_inputs.name] = labels
     input_feed[generator_seed_inputs.name] = seed
+    input_feed[training_mode.name] = False
 
     return session.run(generator_outputs, input_feed)
 
@@ -174,6 +186,7 @@ def valid_step(session, images, labels, seed, summary):
     input_feed[labels_inputs.name] = labels
     input_feed[discriminator_inputs.name] = images
     input_feed[generator_seed_inputs.name] = seed
+    input_feed[training_mode.name] = False
 
     output_feed = [generator_loss, discriminator_loss, summary]
 
