@@ -82,6 +82,9 @@ def discriminator(inputs, labels, training):
         net = layers.conv2d_layer(4, net, [5, 5, 128], lambda x: layers.lrelu(x, 0.2), stride=2)
         net = layers.max_pool2d(net, [2, 2])
         #net = layers.batch_norm(net, training, name='bn5')
+        _labels = tf.reshape(labels, [-1, 1, 1, 10])
+        net = tf.concat([net, _labels], axis=3)
+        net = tf.reshape(net, [-1, 1, 1, 138])
         net = layers.conv2d_layer(5, net, [1, 1, 1], tf.nn.sigmoid)
         net = tf.reshape(net, [-1, 1])
 
@@ -101,7 +104,7 @@ with tf.name_scope('GAN'):
 
     _generator_inputs = generator_seed_inputs
     with tf.variable_scope('generator'):
-        _inputs = _generator_inputs# tf.concat([_generator_inputs, _labels_inputs], axis=1)
+        _inputs = tf.concat([_generator_inputs, _labels_inputs], axis=1)
         generator_outputs = generator(_inputs, BATCH_SIZE, training_mode)
 
     discriminator_inputs = tf.placeholder(tf.float32, [BATCH_SIZE] + list(train_images.shape[1:]), name='inputs')
