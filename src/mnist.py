@@ -85,8 +85,8 @@ def discriminator(inputs, labels, training):
         _labels = tf.reshape(labels, [-1, 1, 1, 10])
         net = tf.concat([net, _labels], axis=3)
         net = tf.reshape(net, [-1, 1, 1, 138])
-        net = layers.conv2d_layer(5, net, [1, 1, 1], tf.nn.sigmoid)
-        net = tf.reshape(net, [-1, 1])
+        net = layers.fully_connected_layer(1, net, 16)
+        net = layers.fully_connected_layer(2, net, 1, tf.nn.sigmoid, zero_biases=True, zero_weight=True)
 
         return net
 
