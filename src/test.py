@@ -25,7 +25,7 @@ def plot(samples, grid):
 def sample_seed_inputs(m, n):
     return np.random.uniform(-1., 1., size=[m, n])
 
-GENERATOR_SEED_SIZE = 100
+GENERATOR_SEED_SIZE = 64
 
 if not os.path.exists('./samples/'):
     os.makedirs('./samples/')
@@ -35,15 +35,20 @@ with tf.Session() as session:
     saver.restore(session, os.path.join(TRAINING_DIR, 'GAN.ckpt'))
 
     noise_inputs = tf.get_default_graph().get_tensor_by_name('GAN/generator_seed_inputs:0')
-    labels_inputs = tf.get_default_graph().get_tensor_by_name('GAN/labels_inputs:0')
+    labels_inputs = tf.get_default_graph().get_tensor_by_name('GAN/categorical_inputs:0')
+    continuous_inputs = tf.get_default_graph().get_tensor_by_name('GAN/continuous_inputs:0')
     training_mode = tf.get_default_graph().get_tensor_by_name('GAN/training_mode:0')
 
     outputs = tf.get_default_graph().get_tensor_by_name('GAN/generator/generator/conv-3/Sigmoid:0')
 
-    noise = sample_seed_inputs(100, GENERATOR_SEED_SIZE)
+    style = np.random.uniform(-1, 1, size=[100, 2])
 
     for i in range(10):
-        samples = session.run(outputs, {noise_inputs.name: noise, labels_inputs.name: [[i]] * noise.shape[0], training_mode.name: False})
+        noise = sample_seed_inputs(100, GENERATOR_SEED_SIZE)
+        samples = session.run(outputs, {noise_inputs.name: noise,
+                                        labels_inputs.name: [[i]] * noise.shape[0],
+                                        continuous_inputs.name: style,
+                                        training_mode.name: False})
         samples = samples[:16]
 
         fig = plot(samples, (4, 4))
