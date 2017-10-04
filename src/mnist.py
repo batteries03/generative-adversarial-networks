@@ -139,13 +139,22 @@ with tf.name_scope('GAN'):
 
 #элементы графа для обучения сети
 with tf.name_scope('training'):
+    cat_out, con_out = latent_restored_outputs
+
+    cat_loss = tf.reduce_mean(_categorical_inputs*tf.log(tf.clip_by_value(cat_out, 1e-9, 1)))
+    con_loss = tf.reduce_mean(0.5 * tf.square(continuous_inputs - con_out))
+
+    mutual_loss = cat_loss + con_loss
+
+    mutual_lambda = tf.Variable(1e-1, trainable=False)
+
     with tf.name_scope('discriminator'):
         discriminator_targets_real = tf.ones_like(discriminator_outputs_real_prob, name='discriminator_targets_real')
         discriminator_targets_fake = tf.zeros_like(discriminator_outputs_fake_prob, name='discriminator_targets_fake')
 
         _loss_real = tf.reduce_mean(tf.log(tf.clip_by_value(discriminator_outputs_real_prob, 1e-9, 1)))
         _loss_fake = tf.reduce_mean(tf.log(tf.clip_by_value(1 - discriminator_outputs_fake_prob, 1e-9, 1)))
-        discriminator_loss = _loss_real + _loss_fake
+        discriminator_loss = _loss_real + _loss_fake + mutual_lambda * mutual_loss
 
         #минимизация функции потерь по весовым коэффициентам
         discriminator_lr_var = tf.Variable(1e-3, trainable=False)
@@ -158,7 +167,7 @@ with tf.name_scope('training'):
         #целевые значения, к которым должна придти сеть в результате обучения
         generator_targets = tf.ones_like(discriminator_outputs_fake_prob, name='generator_targets')
         #функция потерь (ошибки)
-        generator_loss = tf.reduce_mean(tf.log(tf.clip_by_value(discriminator_outputs_fake_prob, 1e-9, 1)))
+        generator_loss = tf.reduce_mean(tf.log(tf.clip_by_value(discriminator_outputs_fake_prob, 1e-9, 1))) + mutual_lambda * mutual_loss
 
         #минимизация функции потерь по весовым коэффициентам
         generator_lr_var = tf.Variable(1e-3, trainable=False)
@@ -167,39 +176,11 @@ with tf.name_scope('training'):
         optimizer = tf.train.AdamOptimizer(generator_lr_var)
         generator_updates = optimizer.minimize(-generator_loss, var_list=params) # maximization
 
-    with tf.name_scope('mutual'):
-        cat_out, con_out = latent_restored_outputs
-
-        cat_loss = tf.reduce_mean(_categorical_inputs*tf.log(tf.clip_by_value(cat_out, 1e-9, 1)))
-        con_loss = tf.reduce_mean(0.5 * tf.square(continuous_inputs - con_out))
-
-        mutual_loss = cat_loss + con_loss
-
-        mutual_lr_var = tf.Variable(1e-3, trainable=False)
-
-        params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='generator')
-        params = params + tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='discriminator')
-
-        optimizer = tf.train.AdamOptimizer(mutual_lr_var)
-        mutual_updates = optimizer.minimize(mutual_loss, var_list=params) # maximization
-
 # сохранение параметров для графа
 save_vars = tf.global_variables()
 saver = tf.train.Saver(save_vars)
 
 # шаг тренировки. заполняем узлы графа, картинками для обучения, которые используются для входа, и вычисляем обновления весов
-def train_mutual_step(session, images, categorical, continuous, seed):
-    input_feed = {}
-
-    input_feed[categorical_inputs.name] = categorical
-    input_feed[continuous_inputs.name] = continuous
-    input_feed[generator_seed_inputs.name] = seed
-    input_feed[training_mode.name] = True
-
-    output_feed = [mutual_updates]
-
-    _ = session.run(output_feed, input_feed)
-
 def train_discriminator_step(session, images, categorical, continuous, seed):
     input_feed = {}
 
@@ -309,7 +290,6 @@ with tf.Session() as session:
 
                 train_discriminator_step(session, images, cat, con, seed)
                 train_generator_step(session, cat, con, seed)
-                train_mutual_step(session, images, cat, con, seed)
 
             batch = np.random.choice(len(train_images), BATCH_SIZE, replace=False)
             images = train_images[batch]
