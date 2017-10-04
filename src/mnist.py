@@ -141,7 +141,7 @@ with tf.name_scope('GAN'):
 with tf.name_scope('training'):
     cat_out, con_out = latent_restored_outputs
 
-    cat_loss = tf.reduce_mean(_categorical_inputs*tf.log(tf.clip_by_value(cat_out, 1e-9, 1)))
+    cat_loss = tf.reduce_mean(-tf.reduce_sum(_categorical_inputs*tf.log(tf.clip_by_value(cat_out, 1e-9, 1)), axis=1))
     con_loss = tf.reduce_mean(0.5 * tf.square(continuous_inputs - con_out))
 
     mutual_loss = cat_loss + con_loss
@@ -154,7 +154,7 @@ with tf.name_scope('training'):
 
         _loss_real = tf.reduce_mean(tf.log(tf.clip_by_value(discriminator_outputs_real_prob, 1e-9, 1)))
         _loss_fake = tf.reduce_mean(tf.log(tf.clip_by_value(1 - discriminator_outputs_fake_prob, 1e-9, 1)))
-        discriminator_loss = _loss_real + _loss_fake + mutual_lambda * mutual_loss
+        discriminator_loss = _loss_real + _loss_fake - mutual_lambda * mutual_loss
 
         #минимизация функции потерь по весовым коэффициентам
         discriminator_lr_var = tf.Variable(1e-3, trainable=False)
