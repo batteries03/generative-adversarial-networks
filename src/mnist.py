@@ -268,7 +268,7 @@ with tf.Session() as session:
     print('Start training.', flush=True)
     try:
         for epoch in range(0, EPOCHS):
-            cat = np.random.randint(0, 9, [BATCH_SIZE, 1])
+            cat = np.random.randint(0, 10, [BATCH_SIZE, 1])
             con = np.random.uniform(-1, 1, size=[BATCH_SIZE, 2])
             seed = sample_seed_inputs(BATCH_SIZE, GENERATOR_SEED_SIZE)
             samples = generator_step(session, cat, con, seed)[:16]
@@ -284,8 +284,7 @@ with tf.Session() as session:
                 batch = np.arange(b*BATCH_SIZE, (b+1)*BATCH_SIZE)
 
                 images = train_images[batch]
-                #cat = np.random.randint(0, 9, [BATCH_SIZE, 1])
-                cat = train_labels[batch]
+                cat = np.random.randint(0, 10, [BATCH_SIZE, 1])
                 con = np.random.uniform(-1, 1, size=[BATCH_SIZE, 2])
                 seed = sample_seed_inputs(BATCH_SIZE, GENERATOR_SEED_SIZE)
 
@@ -294,8 +293,7 @@ with tf.Session() as session:
 
             batch = np.random.choice(len(train_images), BATCH_SIZE, replace=False)
             images = train_images[batch]
-            #cat = np.random.randint(0, 9, [BATCH_SIZE, 1])
-            cat = train_labels[batch]
+            cat = np.random.randint(0, 10, [BATCH_SIZE, 1])
             con = np.random.uniform(-1, 1, size=[BATCH_SIZE, 2])
             seed = sample_seed_inputs(BATCH_SIZE, GENERATOR_SEED_SIZE)
             train_gen_loss, train_dis_loss, summary = valid_step(session, images, cat, con, seed, summary_op)
@@ -304,8 +302,7 @@ with tf.Session() as session:
 
             batch = np.random.choice(len(valid_images), BATCH_SIZE, replace=False)
             images = test_images[batch]
-            #cat = np.random.randint(0, 9, [BATCH_SIZE, 1])
-            cat = test_labels[batch]
+            cat = np.random.randint(0, 10, [BATCH_SIZE, 1])
             con = np.random.uniform(-1, 1, size=[BATCH_SIZE, 2])
             seed = sample_seed_inputs(BATCH_SIZE, GENERATOR_SEED_SIZE)
             valid_gen_loss, valid_dis_loss, summary = valid_step(session, images, cat, con, seed, summary_op)
