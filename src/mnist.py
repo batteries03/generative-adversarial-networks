@@ -86,8 +86,8 @@ def discriminator_base(inputs):
 
         return net
 
-def discriminator(inputs):
-    with tf.name_scope('discriminator'):
+def discriminator_class(inputs):
+    with tf.name_scope('discriminator_class'):
         net = layers.fully_connected_layer(1, inputs, 16)
         net = layers.fully_connected_layer(2, net, 1, tf.nn.sigmoid, zero_biases=True, zero_weights=True)
 
@@ -122,20 +122,23 @@ with tf.name_scope('GAN'):
         generator_outputs = generator(_inputs, BATCH_SIZE, training_mode)
 
     discriminator_inputs = tf.placeholder(tf.float32, [BATCH_SIZE] + list(train_images.shape[1:]), name='inputs')
-    with tf.variable_scope('discriminator') as vs:
+    with tf.variable_scope('discriminator-base') as vs:
         with tf.name_scope('real'):
-            net = discriminator_base(discriminator_inputs)
-            discriminator_outputs_real_prob = discriminator(net)
+            real_net = discriminator_base(discriminator_inputs)
+
         vs.reuse_variables()
         with tf.name_scope('fake'):
-            net = discriminator_base(generator_outputs)
-            discriminator_outputs_fake_prob = discriminator(net)
+            fake_net = discriminator_base(generator_outputs)
 
-        with tf.name_scope('latent'):
-            net = discriminator_base(generator_outputs)
+    with tf.variable_scope('discriminator-class') as vs:
+        with tf.name_scope('real'):
+            discriminator_outputs_real_prob = discriminator_class(real_net)
+        vs.reuse_variables()
+        with tf.name_scope('fake'):
+            discriminator_outputs_fake_prob = discriminator_class(fake_net)
 
     with tf.variable_scope('discriminator-latent'):
-        latent_restored_outputs = discriminator_latent(net, _categorical_inputs.shape[1], continuous_inputs.shape[1])
+        latent_restored_outputs = discriminator_latent(fake_net, _categorical_inputs.shape[1], continuous_inputs.shape[1])
 
 #элементы графа для обучения сети
 with tf.name_scope('training'):
@@ -159,7 +162,9 @@ with tf.name_scope('training'):
         #минимизация функции потерь по весовым коэффициентам
         discriminator_lr_var = tf.Variable(1e-3, trainable=False)
 
-        params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='discriminator')
+        params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='discriminator-base')
+        params = params + tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='discriminator-class')
+        params = params + tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='discriminator-latent')
         optimizer = tf.train.AdamOptimizer(discriminator_lr_var)
         discriminator_updates = optimizer.minimize(-discriminator_loss, var_list=params) # maximization
 
@@ -173,6 +178,8 @@ with tf.name_scope('training'):
         generator_lr_var = tf.Variable(1e-3, trainable=False)
 
         params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='generator')
+        params = params + tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='discriminator-base')
+        params = params + tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='discriminator-latent')
         optimizer = tf.train.AdamOptimizer(generator_lr_var)
         generator_updates = optimizer.minimize(-generator_loss, var_list=params) # maximization
 
